@@ -5,6 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/marked.min.js"></script>
 </head>
 <body>
     <div class="header">
@@ -346,25 +347,20 @@
                             // 处理回答内容
                             if (data.content) {
                                 fullContent += data.content;
-                                // 每次收到新内容都检查完整内容是否是 markdown
-                                if (data.is_markdown !== false) {  // 如果后端没有明确指出不是 markdown
-                                    // 发送完整内容到后端进行 markdown 检查和转换
-                                    const response = await fetch('/convert_markdown', {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                        },
-                                        body: JSON.stringify({
-                                            content: fullContent
-                                        })
-                                    });
-                                    const result = await response.json();
-                                    if (result.html_content) {
-                                        fullHtml = result.html_content;
+                                // 尝试解析为 markdown
+                                try {
+                                    // 检查内容是否包含 markdown 特征
+                                    const hasMarkdown = /[*#\[\]`]/.test(fullContent) || 
+                                                      fullContent.includes('\n\n') ||
+                                                      /\[.+\]\(.+\)/.test(fullContent);
+                                    
+                                    if (hasMarkdown) {
+                                        fullHtml = marked.parse(fullContent);
                                     } else {
                                         fullHtml = `<p>${fullContent}</p>`;
                                     }
-                                } else {
+                                } catch (e) {
+                                    console.error('Markdown 解析错误:', e);
                                     fullHtml = `<p>${fullContent}</p>`;
                                 }
                                 const answerDiv = thinkingDiv.querySelector('.answer-content');
