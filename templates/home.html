@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>智能AI助手</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="header">
+        <div class="header-title">
+            <img src="/static/logo.png" alt="AI助手">
+            <span>智能AI助手</span>
+        </div>
+        <div class="header-controls">
+            <select class="model-selector" id="modelSelector">
+                <option value="deepseek-r1">DeepSeek R1</option>
+                <option value="deepseek-v3">DeepSeek V3</option>
+            </select>
+            <button class="clear-btn" onclick="clearChat()">清空对话</button>
+        </div>
+    </div>
+
+    <div class="chat-container" id="chatContainer">
+        <div class="message assistant">
+            <div class="message-content">
+                {{ welcome_message }}
+            </div>
+        </div>
+    </div>
+
+    <div class="input-container">
+        <div class="input-box">
+            <textarea id="userInput" placeholder="请输入您的问题，按Enter发送，Shift+Enter换行" onkeydown="handleKeyPress(event)"></textarea>
+            <button class="send-btn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <script>
+        let isProcessing = false;
+        const welcome_message = `{{ welcome_message|safe }}`;
+
+        // 添加消息历史数组
+        let messageHistory = [];
+
+        function handleKeyPress(event) {
+            if (event.keyCode === 13 && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function clearChat() {
+            document.getElementById('chatContainer').innerHTML = `
+                <div class="message assistant">
+                    <div class="message-content">
+                        ${welcome_message}
+                    </div>
+                </div>
+            `;
+            // 清空消息历史
+            messageHistory = [];
+        }
+
+        function appendMessage(content, isUser = false) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+            
+            // 添加头像
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            if (isUser) {
+                // 不再添加文字，使用 CSS 伪元素显示图标
+            } else {
+                avatar.innerHTML = '<img src="/static/favicon-16x16.png" alt="AI">';
+            }
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = `
+                ${isUser ? `<div class="user-content">${content}</div>` : `
+                    <div class="answer-content">${content}</div>
+                    <div class="message-actions">
+                        <button class="action-btn stop-btn" title="停止生成">
+                            <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                <path d="M768 768H256V256h512v512z" fill="currentColor"/>
+                            </svg>
+                        </button>
+                        <button class="action-btn edit-btn" title="编辑">
+                            <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                <path d="M257.7 752c2 0 4-.2 6-.5L431.9 722c2-.4 3.9-1.3 5.3-2.8l423.9-423.9c3.9-3.9 3.9-10.2 0-14.1L694.9 114.9c-1.9-1.9-4.4-2.9-7.1-2.9s-5.2 1-7.1 2.9L256.8 538.8c-1.5 1.5-2.4 3.3-2.8 5.3l-29.5 168.2c-1.9 11.1 1.5 21.9 9.4 29.8 6.6 6.4 14.9 9.9 23.8 9.9z" fill="currentColor"/>
+                            </svg>
+                        </button>
+                        <button class="action-btn copy-btn" title="复制">
+                            <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                <path d="M832 64H296c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h496v688c0 4.4 3.6 8 8 8h56c4.4 0 8-3.6 8-8V96c0-17.7-14.3-32-32-32zM704 192H192c-17.7 0-32 14.3-32 32v530.7c0 8.5 3.4 16.6 9.4 22.6l173.3 173.3c2.2 2.2 4.7 4 7.4 5.5v1.9h4.2c3.5 1.3 7.2 2 11 2H704c17.7 0 32-14.3 32-32V224c0-17.7-14.3-32-32-32zM382 896h-.2L232 746.2V896h150z" fill="currentColor"/>
+                            </svg>
+                        </button>
+                    </div>
+                `}
+            `;
+            
+            // 根据用户类型决定添加顺序
+            if (isUser) {
+                messageDiv.appendChild(contentDiv);
+                messageDiv.appendChild(avatar);
+            } else {
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(contentDiv);
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            if (!isUser) {
+                // 绑定按钮事件
+                const stopBtn = messageDiv.querySelector('.stop-btn');
+                const editBtn = messageDiv.querySelector('.edit-btn');
+                const copyBtn = messageDiv.querySelector('.copy-btn');
+                
+                editBtn.onclick = () => editMessage(messageDiv);
+                copyBtn.onclick = () => copyMessage(messageDiv);
+                
+                // 当生成完成时，自动切换为重试按钮
+                setTimeout(() => {
+                    if (!isProcessing) {
+                        convertToRetryButton(stopBtn);
+                    }
+                }, 100);
+            }
+            
+            return messageDiv;
+        }
+
+        function convertToRetryButton(button) {
+            button.className = 'action-btn retry-btn';
+            button.innerHTML = `
+                <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                    <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z" fill="currentColor"/>
+                    <path d="M719.4 499.1l-296.1-215A15.9 15.9 0 0 0 398 297v430c0 13.1 14.8 20.5 25.3 12.9l296.1-215a15.9 15.9 0 0 0 0-25.8z" fill="currentColor"/>
+                </svg>
+            `;
+            button.title = "重新回答";
+            button.onclick = () => regenerateAnswer(button.closest('.message'));
+        }
+
+        // 添加相关功能函数
+        let currentController = null;
+
+        function stopGeneration(messageDiv) {
+            if (currentController) {
+                currentController.abort();
+                currentController = null;
+                
+                // 立即将停止按钮转换为重试按钮
+                const stopBtn = messageDiv.querySelector('.stop-btn');
+                convertToRetryButton(stopBtn);
+
+                // 只恢复发送按钮状态
+                const sendBtn = document.querySelector('.send-btn');
+                sendBtn.disabled = false;
+                sendBtn.style.opacity = '1';
+                isProcessing = false;
+            }
+        }
+
+        function regenerateAnswer(messageDiv) {
+            // 找到最后一轮对话
+            const lastUserMessage = messageHistory[messageHistory.length - 2];
+            if (lastUserMessage && lastUserMessage.role === 'user') {
+                // 移除最后一条助手回复
+                messageHistory.pop();
+                // 删除当前回答
+                messageDiv.remove();
+                // 重新发送最后一个问题
+                sendMessage(lastUserMessage.content);
+            }
+        }
+
+        function editMessage(messageDiv) {
+            const content = messageDiv.querySelector('.answer-content').textContent;
+            const textarea = document.createElement('textarea');
+            textarea.className = 'edit-textarea';
+            textarea.value = content;
+            textarea.style.width = '100%';
+            textarea.style.minHeight = '100px';
+            textarea.style.padding = '12px';
+            textarea.style.marginTop = '10px';
+            textarea.style.border = '1px solid var(--border-color)';
+            textarea.style.borderRadius = '6px';
+            textarea.style.resize = 'vertical';
+
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = '保存';
+            saveBtn.className = 'save-btn';
+            saveBtn.style.marginTop = '10px';
+            saveBtn.style.padding = '6px 12px';
+            saveBtn.style.background = 'var(--primary-color)';
+            saveBtn.style.color = 'white';
+            saveBtn.style.border = 'none';
+            saveBtn.style.borderRadius = '4px';
+            saveBtn.style.cursor = 'pointer';
+
+            const answerContent = messageDiv.querySelector('.answer-content');
+            const originalContent = answerContent.innerHTML;
+            answerContent.innerHTML = '';
+            answerContent.appendChild(textarea);
+            answerContent.appendChild(saveBtn);
+
+            saveBtn.onclick = () => {
+                answerContent.innerHTML = textarea.value;
+                // 重新绑定事件
+                const actionBtns = messageDiv.querySelectorAll('.action-btn');
+                actionBtns.forEach(btn => {
+                    if (btn.classList.contains('edit-btn')) {
+                        btn.onclick = () => editMessage(messageDiv);
+                    } else if (btn.classList.contains('copy-btn')) {
+                        btn.onclick = () => copyMessage(messageDiv);
+                    }
+                });
+            };
+        }
+
+        function copyMessage(messageDiv) {
+            const content = messageDiv.querySelector('.answer-content').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                const copyBtn = messageDiv.querySelector('.copy-btn');
+                copyBtn.classList.add('copied');
+                copyBtn.title = '已复制';
+                
+                // 2秒后恢复原状
+                setTimeout(() => {
+                    copyBtn.classList.remove('copied');
+                    copyBtn.title = '复制';
+                }, 2000);
+            }).catch(err => {
+                console.error('复制失败:', err);
+            });
+        }
+
+        async function sendMessage() {
+            if (isProcessing) return;
+            
+            const input = document.getElementById('userInput');
+            const sendBtn = document.querySelector('.send-btn');
+            const userMessage = input.value.trim();
+            if (!userMessage) return;
+
+            // 添加用户消息到对话框和历史记录
+            appendMessage(userMessage, true);
+            messageHistory.push({ role: 'user', content: userMessage });
+
+            // 清空输入框并禁用发送按钮
+            input.value = '';
+            sendBtn.disabled = true;
+            sendBtn.style.opacity = '0.6';
+            isProcessing = true;
+
+            // 创建新的 AbortController
+            currentController = new AbortController();
+
+            // 创建AI回复的消息框
+            const thinkingDiv = document.createElement('div');
+            thinkingDiv.className = 'message assistant';  // 直接使用正确的类名
+            
+            // 添加头像
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.innerHTML = '<img src="/static/favicon-16x16.png" alt="AI">';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = `
+                <div class="reasoning-content" style="display: none;">
+                    <strong>思考过程：</strong><br/>
+                    <span class="reasoning-text"></span>
+                </div>
+                <div class="answer-content"></div>
+                <div class="message-actions">
+                    <button class="action-btn stop-btn" title="停止生成">
+                        <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                            <path d="M768 768H256V256h512v512z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button class="action-btn edit-btn" title="编辑">
+                        <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                            <path d="M257.7 752c2 0 4-.2 6-.5L431.9 722c2-.4 3.9-1.3 5.3-2.8l423.9-423.9c3.9-3.9 3.9-10.2 0-14.1L694.9 114.9c-1.9-1.9-4.4-2.9-7.1-2.9s-5.2 1-7.1 2.9L256.8 538.8c-1.5 1.5-2.4 3.3-2.8 5.3l-29.5 168.2c-1.9 11.1 1.5 21.9 9.4 29.8 6.6 6.4 14.9 9.9 23.8 9.9z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button class="action-btn copy-btn" title="复制">
+                        <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                            <path d="M832 64H296c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h496v688c0 4.4 3.6 8 8 8h56c4.4 0 8-3.6 8-8V96c0-17.7-14.3-32-32-32zM704 192H192c-17.7 0-32 14.3-32 32v530.7c0 8.5 3.4 16.6 9.4 22.6l173.3 173.3c2.2 2.2 4.7 4 7.4 5.5v1.9h4.2c3.5 1.3 7.2 2 11 2H704c17.7 0 32-14.3 32-32V224c0-17.7-14.3-32-32-32zM382 896h-.2L232 746.2V896h150z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+            
+            thinkingDiv.appendChild(avatar);
+            thinkingDiv.appendChild(contentDiv);
+            document.getElementById('chatContainer').appendChild(thinkingDiv);
+
+            // 立即绑定停止按钮事件
+            const stopBtn = thinkingDiv.querySelector('.stop-btn');
+            stopBtn.onclick = () => stopGeneration(thinkingDiv);
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        messages: messageHistory,  // 发送完整的消息历史
+                        model: document.getElementById('modelSelector').value,
+                        stream: true
+                    }),
+                    signal: currentController.signal
+                });
+
+                const reader = response.body.getReader();
+                let reasoningContent = '';
+                let fullContent = '';
+                let fullHtml = '';
+
+                while (true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+
+                    const chunk = new TextDecoder().decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.slice(5));
+                            
+                            // 处理思考过程
+                            if (data.reasoning_content && document.getElementById('modelSelector').value === 'deepseek-r1') {
+                                reasoningContent += data.reasoning_content;
+                                const reasoningDiv = thinkingDiv.querySelector('.reasoning-content');
+                                const reasoningText = thinkingDiv.querySelector('.reasoning-text');
+                                reasoningDiv.style.display = 'block';
+                                reasoningText.textContent = reasoningContent;
+                            }
+                            
+                            // 处理回答内容
+                            if (data.content) {
+                                fullContent += data.content;
+                                // 每次收到新内容都检查完整内容是否是 markdown
+                                if (data.is_markdown !== false) {  // 如果后端没有明确指出不是 markdown
+                                    // 发送完整内容到后端进行 markdown 检查和转换
+                                    const response = await fetch('/convert_markdown', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            content: fullContent
+                                        })
+                                    });
+                                    const result = await response.json();
+                                    if (result.html_content) {
+                                        fullHtml = result.html_content;
+                                    } else {
+                                        fullHtml = `<p>${fullContent}</p>`;
+                                    }
+                                } else {
+                                    fullHtml = `<p>${fullContent}</p>`;
+                                }
+                                const answerDiv = thinkingDiv.querySelector('.answer-content');
+                                answerDiv.innerHTML = fullHtml;
+                            }
+                        }
+                    }
+                }
+
+                thinkingDiv.className = 'message assistant';
+                // 生成完成后，将停止按钮转换为重试按钮
+                const stopBtn = thinkingDiv.querySelector('.stop-btn');
+                convertToRetryButton(stopBtn);
+                
+                // 将AI的回复添加到历史记录
+                messageHistory.push({ 
+                    role: 'assistant', 
+                    content: fullContent 
+                });
+
+                // 如果历史记录超过最大轮数，移除最早的对话
+                let maxTurns = 5; // 默认值
+                if (messageHistory.length > maxTurns * 2) {
+                    messageHistory = messageHistory.slice(-maxTurns * 2);
+                }
+
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.log('Generation stopped by user');
+                } else {
+                    console.error('Error:', error);
+                    thinkingDiv.className = 'message assistant';
+                    thinkingDiv.innerHTML = `
+                        <div class="message-content">
+                            抱歉，发生了错误：${error.message}
+                        </div>
+                    `;
+                }
+            } finally {
+                // 只恢复发送按钮状态
+                sendBtn.disabled = false;
+                sendBtn.style.opacity = '1';
+                isProcessing = false;
+                currentController = null;
+            }
+        }
+
+        // 自动调整文本框高度
+        function autoResizeTextarea(textarea) {
+            textarea.style.height = 'auto';  // 重置高度
+            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';  // 设置新高度，最大200px
+        }
+
+        // 初始化事件监听
+        document.addEventListener('DOMContentLoaded', async function() {
+            const textarea = document.getElementById('userInput');
+            
+            // 输入时自动调整高度
+            textarea.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+            
+            // 处理回车键
+            textarea.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            // 初始化高度
+            autoResizeTextarea(textarea);
+
+            // 加载配置并更新模型选择器
+            fetch('/get_models')
+                .then(response => response.json())
+                .then(models => {
+                    const selector = document.getElementById('modelSelector');
+                    selector.innerHTML = '';  // 清空现有选项
+                    
+                    Object.entries(models).forEach(([id, model]) => {
+                        const option = document.createElement('option');
+                        option.value = id;
+                        option.textContent = model.name;
+                        selector.appendChild(option);
+                    });
+                });
+
+            // 初始化时获取最大对话轮数
+            try {
+                const response = await fetch('/get_agent_config');
+                const config = await response.json();
+                maxTurns = config.conversation_max_turns || 5;
+            } catch (error) {
+                console.error('获取配置失败:', error);
+            }
+        });
+    </script>
+</body>
+</html> 

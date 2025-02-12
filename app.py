@@ -1,0 +1,282 @@
+from flask import Flask, request, Response, jsonify, render_template, redirect
+from flask_cors import CORS
+from openai import OpenAI
+import json
+import markdown2
+import re
+import logging
+
+app = Flask(__name__, template_folder='templates')
+CORS(app)  # 启用CORS支持
+
+# 配置日志
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# 加载配置文件
+def load_config():
+    with open('config.json', 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def get_mapped_model(model_id):
+    config = load_config()
+    models = config.get('models', {})
+    if model_id in models:
+        return models[model_id].get('api_model', model_id)
+    return model_id
+
+def get_model_config(model_id):
+    """获取指定模型的配置"""
+    config = load_config()
+    models = config.get('models', {})
+    if model_id in models:
+        return models[model_id]
+    return None
+
+def is_markdown(text):
+    """检查文本是否包含 Markdown 格式"""
+    markdown_patterns = [
+        r'^#+\s',           # 标题
+        r'^\s*[-*+]\s',     # 无序列表
+        r'^\s*\d+\.\s',     # 有序列表
+        r'`[^`]+`',         # 行内代码
+        r'```[\s\S]+?```',  # 代码块
+        r'\[.+?\]\(.+?\)',  # 链接
+        r'\*\*.+?\*\*',     # 加粗
+        r'\*.+?\*',         # 斜体
+        r'^\s*>',           # 引用
+        r'\|.+?\|',         # 表格
+        r'^-{3,}$',         # 分隔线
+    ]
+    
+    for pattern in markdown_patterns:
+        if re.search(pattern, text, re.MULTILINE):
+            return True
+    return False
+
+def convert_to_html(text):
+    """根据内容格式决定是否转换为 HTML"""
+    if is_markdown(text):
+        # 使用 markdown2 转换 markdown 内容
+        markdowner = markdown2.Markdown(extras=[
+            'fenced-code-blocks',
+            'tables',
+            'header-ids'
+        ])
+        return markdowner.convert(text)
+    else:
+        # 非 markdown 内容直接返回，但确保是 HTML 安全的
+        return f"<p>{text}</p>"
+
+def load_agent_config():
+    try:
+        with open('agent_config.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # 返回默认配置
+        default_config = {
+            "system_prompt": "你是银行内部的智能办公助手，你需要：\n1. 严格遵守银行业务规范和保密制度\n2. 提供准确、规范的业务咨询和操作指导\n3. 协助完成日常办公文件处理和数据分析\n4. 保持专业、严谨的工作态度\n5. 确保信息安全，不讨论敏感信息",
+            
+            "user_prompt": "在与我交流时，请：\n1. 严格按照银行规章制度提供服务\n2. 对于超出权限的问题，明确告知无法处理\n3. 需要补充信息时，有条理地提出问题\n4. 保持严谨的专业用语和表达方式",
+            
+            "assistant_prompt": "作为银行智能助手，我将：\n1. 确保回答的专业性和准确性\n2. 严格遵守信息安全规范\n3. 使用规范的银行业务术语\n4. 保持高效、严谨的服务态度\n5. 在权限范围内提供最大帮助",
+            
+            "conversation_max_turns": 10,
+            "welcome_message": "您好，我是银行智能办公助手。我将严格遵守银行规范，协助您完成工作。"
+        }
+        # 创建默认配置文件
+        with open('agent_config.json', 'w', encoding='utf-8') as f:
+            json.dump(default_config, f, ensure_ascii=False, indent=4)
+        return default_config
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    messages = data.get('messages', [])
+    model = data.get('model', 'deepseek-r1')
+    stream = data.get('stream', True)
+    
+    # 加载agent配置
+    agent_config = load_agent_config()
+    
+    # 构建完整的消息历史
+    full_messages = []
+    
+    # 添加系统提示词
+    if agent_config.get('system_prompt'):
+        full_messages.append({
+            "role": "system",
+            "content": agent_config['system_prompt']
+        })
+    
+    # 添加对话记忆
+    memory = agent_config.get('conversation_memory', [])
+    max_turns = agent_config.get('conversation_max_turns', 10)
+    
+    # 只保留最近的对话历史
+    recent_messages = messages[-max_turns*2:] if len(messages) > max_turns*2 else messages
+    full_messages.extend(memory)
+    full_messages.extend(recent_messages)
+    
+    try:
+        # 获取模型配置
+        model_config = get_model_config(model)
+        if not model_config:
+            return jsonify({"error": "未找到模型配置"}), 400
+            
+        # 使用模型特定的配置创建client
+        client = OpenAI(
+            api_key=model_config['api_key'],
+            base_url=model_config['base_url']
+        )
+        
+        # 记录API调用信息（减少日志输出）
+        logger.info(f"使用模型 {model_config['name']} 进行对话")
+
+        def generate():
+            try:
+                response = client.chat.completions.create(
+                    model=model_config['api_model'],
+                    messages=full_messages,
+                    stream=stream
+                )
+
+                if stream:
+                    for chunk in response:
+                        response_data = {}
+                        
+                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                            reasoning = chunk.choices[0].delta.reasoning_content
+                            response_data['reasoning_content'] = reasoning
+                        
+                        if hasattr(chunk.choices[0].delta, 'content'):
+                            if chunk.choices[0].delta.content:
+                                content = chunk.choices[0].delta.content
+                                response_data['content'] = content
+                                response_data['is_markdown'] = is_markdown(content)
+
+                        if response_data:
+                            yield f"data: {json.dumps(response_data, ensure_ascii=False)}\n\n"
+                else:
+                    content = response.choices[0].message.content
+                    html_content = convert_to_html(content)
+                    response_data = {
+                        'content': content,
+                        'html_content': html_content,
+                        'is_markdown': is_markdown(content)
+                    }
+                    yield f"data: {json.dumps(response_data, ensure_ascii=False)}\n\n"
+
+            except Exception as e:
+                logger.error(f"API调用错误: {str(e)}", exc_info=True)
+                yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+        return Response(generate(), mimetype='text/event-stream')
+
+    except Exception as e:
+        logger.error(f"请求处理错误: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+# 企业微信安装完成回调
+@app.route('/install/callback', methods=['GET', 'POST'])
+def install_callback():
+    try:
+        if request.method == 'GET':
+            # 处理安装验证请求
+            return request.args.get('echostr', '')
+        else:
+            # 处理安装成功回调
+            data = request.json
+            print("收到安装回调:", data)
+            # TODO: 处理安装信息
+            return jsonify({"errcode": 0, "errmsg": "ok"})
+    except Exception as e:
+        print(f"安装回调错误: {str(e)}")
+        return jsonify({"errcode": -1, "errmsg": str(e)})
+
+# 业务设置页面
+@app.route('/business/settings', methods=['GET', 'POST'])
+def business_settings():
+    if request.method == 'GET':
+        # 从agent_config.json获取所有设置
+        agent_settings = load_agent_config()
+        return render_template('settings.html', agent_settings=agent_settings)
+    else:
+        try:
+            data = request.get_json()
+            
+            # 更新agent配置
+            agent_config = {
+                'system_prompt': data.get('system_prompt', ''),
+                'user_prompt': data.get('user_prompt', ''),
+                'assistant_prompt': data.get('assistant_prompt', ''),
+                'conversation_max_turns': int(data.get('conversation_max_turns', 5)),
+                'welcome_message': data.get('welcome_message', '你好，我是一个专业、友好的AI助手!')
+            }
+            with open('agent_config.json', 'w', encoding='utf-8') as f:
+                json.dump(agent_config, f, ensure_ascii=False, indent=4)
+                
+            return jsonify({"errcode": 0, "errmsg": "设置已保存"})
+        except Exception as e:
+            return jsonify({"errcode": -1, "errmsg": f"保存失败: {str(e)}"})
+
+# 数据回调
+@app.route('/data/callback', methods=['POST'])
+def data_callback():
+    try:
+        data = request.json
+        print("收到数据回调:", data)
+        # TODO: 处理数据回调
+        return jsonify({"errcode": 0, "errmsg": "ok"})
+    except Exception as e:
+        print(f"数据回调错误: {str(e)}")
+        return jsonify({"errcode": -1, "errmsg": str(e)})
+
+# 指令回调
+@app.route('/command/callback', methods=['POST'])
+def command_callback():
+    try:
+        data = request.json
+        print("收到指令回调:", data)
+        # TODO: 处理指令回调
+        return jsonify({"errcode": 0, "errmsg": "ok"})
+    except Exception as e:
+        print(f"指令回调错误: {str(e)}")
+        return jsonify({"errcode": -1, "errmsg": str(e)})
+
+# 移动端首页
+@app.route('/app/home')
+def app_home():
+    agent_config = load_agent_config()
+    welcome_message = agent_config.get('welcome_message', '你好，我是一个专业、友好的AI助手')
+    return render_template('home.html', welcome_message=welcome_message)
+
+# 桌面端首页
+@app.route('/desktop/home')
+def desktop_home():
+    agent_config = load_agent_config()
+    welcome_message = agent_config.get('welcome_message', '你好，我是一个专业、友好的AI助手')
+    return render_template('home.html', welcome_message=welcome_message)
+
+# 默认路由重定向到移动端首页
+@app.route('/')
+def index():
+    return redirect('/app/home')
+
+@app.route('/get_models')
+def get_models():
+    config = load_config()
+    return jsonify(config.get('models', {}))
+
+@app.route('/get_agent_config')
+def get_agent_config():
+    config = load_agent_config()
+    return jsonify({
+        'conversation_max_turns': config.get('conversation_max_turns', 5)
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5001)  # 修改端口为5001 

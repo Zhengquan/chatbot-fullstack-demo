@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "activate-conda-env",
+            "type": "shell",
+            "command": "/bin/zsh",
+            "args": [
+                "-c",
+                "eval \"$('～/miniconda3/bin/conda' 'shell.zsh' 'hook')\" && conda activate langchain"
+            ],
+            "windows": {
+                "command": "cmd",
+                "args": [
+                    "/c",
+                    "conda activate langchain"
+                ]
+            },
+            "osx": {
+                "command": "/bin/zsh",
+                "args": [
+                    "-c",
+                    "eval \"$('～/miniconda3/bin/conda' 'shell.zsh' 'hook')\" && conda activate langchain"
+                ]
+            },
+            "linux": {
+                "command": "/bin/bash",
+                "args": [
+                    "-c",
+                    "eval \"$('～/miniconda3/bin/conda' 'shell.bash' 'hook')\" && conda activate langchain"
+                ]
+            },
+            "problemMatcher": []
+        }
+    ]
+} 

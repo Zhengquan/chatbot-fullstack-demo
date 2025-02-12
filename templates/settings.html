@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>业务设置</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .settings-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        input[type="number"] {
+            width: 100px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .save-success {
+            color: #059669;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <h1>业务设置</h1>
+        
+        <form id="settingsForm">
+            <div class="form-group">
+                <label for="welcomeMessage">欢迎语</label>
+                <textarea name="welcome_message" id="welcomeMessage">{{ agent_settings.get('welcome_message', '') }}</textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="systemPrompt">系统提示词</label>
+                <textarea name="system_prompt" id="systemPrompt">{{ agent_settings.get('system_prompt', '') }}</textarea>
+                <small>定义AI助手的角色和行为准则</small>
+            </div>
+
+            <div class="form-group">
+                <label for="userPrompt">用户提示词</label>
+                <textarea name="user_prompt" id="userPrompt">{{ agent_settings.get('user_prompt', '') }}</textarea>
+                <small>定义用户期望的交互方式</small>
+            </div>
+
+            <div class="form-group">
+                <label for="assistantPrompt">助手提示词</label>
+                <textarea name="assistant_prompt" id="assistantPrompt">{{ agent_settings.get('assistant_prompt', '') }}</textarea>
+                <small>定义AI助手的回答风格和方式</small>
+            </div>
+
+            <div class="form-group">
+                <label for="maxTurns">最大对话轮数</label>
+                <input type="number" name="conversation_max_turns" id="maxTurns" 
+                       value="{{ agent_settings.get('conversation_max_turns', 10) }}" min="1" max="50">
+                <small>限制对话历史的最大轮数，建议值：10-20</small>
+            </div>
+
+            <button type="submit">保存设置</button>
+            <div class="save-success" id="saveSuccess">设置已保存！</div>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('settingsForm').onsubmit = async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const settings = Object.fromEntries(formData.entries());
+            
+            try {
+                const response = await fetch('/business/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(settings)
+                });
+                
+                const result = await response.json();
+                if (result.errcode === 0) {
+                    const successMsg = document.getElementById('saveSuccess');
+                    successMsg.style.display = 'block';
+                    setTimeout(() => {
+                        successMsg.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alert('保存失败：' + result.errmsg);
+                }
+            } catch (error) {
+                alert('保存失败：' + error.message);
+            }
+        };
+    </script>
+</body>
+</html> 

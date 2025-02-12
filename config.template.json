@@ -1,0 +1,22 @@
+{
+    "models": {
+        "deepseek-r1": {
+            "name": "DeepSeek R1",
+            "api_model": "deepseek-r1",
+            "base_url": "https://api.lkeap.cloud.tencent.com/v1",
+            "api_key": "your-deepseek-api-key"
+        },
+        "deepseek-v3": {
+            "name": "DeepSeek V3",
+            "api_model": "deepseek-v3",
+            "base_url": "https://api.lkeap.cloud.tencent.com/v1",
+            "api_key": "your-deepseek-api-key"
+        },
+        "hunyuan-turbo": {
+            "name": "腾讯混元 Turbo",
+            "api_model": "hunyuan-turbo",
+            "base_url": "https://api.hunyuan.cloud.tencent.com/v1",
+            "api_key": "your-hunyuan-api-key"
+        }
+    }
+} 
