@@ -82,13 +82,13 @@
             contentDiv.innerHTML = `
                 ${isUser ? `<div class="user-content">${content}</div>` : `
                     <div class="answer-content">${content}</div>
-                    <div class="message-actions">
+                    <div class="message-actions" style="margin-top: 10px; padding: 5px 0;">
                         <button class="action-btn stop-btn" title="停止生成">
                             <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
                                 <path d="M768 768H256V256h512v512z" fill="currentColor"/>
                             </svg>
                         </button>
-                        <button class="action-btn edit-btn" title="编辑">
+                        <button class="action-btn edit-btn" title="编辑提问">
                             <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
                                 <path d="M257.7 752c2 0 4-.2 6-.5L431.9 722c2-.4 3.9-1.3 5.3-2.8l423.9-423.9c3.9-3.9 3.9-10.2 0-14.1L694.9 114.9c-1.9-1.9-4.4-2.9-7.1-2.9s-5.2 1-7.1 2.9L256.8 538.8c-1.5 1.5-2.4 3.3-2.8 5.3l-29.5 168.2c-1.9 11.1 1.5 21.9 9.4 29.8 6.6 6.4 14.9 9.9 23.8 9.9z" fill="currentColor"/>
                             </svg>
@@ -167,70 +167,54 @@
         }
 
         function regenerateAnswer(messageDiv) {
-            // 找到最后一轮对话
-            const lastUserMessage = messageHistory[messageHistory.length - 2];
-            if (lastUserMessage && lastUserMessage.role === 'user') {
-                // 移除最后一条助手回复
-                messageHistory.pop();
-                // 删除当前回答
-                messageDiv.remove();
-                // 重新发送最后一个问题
-                sendMessage(lastUserMessage.content);
+            // 找到当前消息及其之后的所有消息
+            const messages = document.querySelectorAll('.message');
+            const currentIndex = Array.from(messages).indexOf(messageDiv);
+            
+            // 找到对应的用户提问
+            const userMessage = messages[currentIndex - 1];
+            if (userMessage && userMessage.classList.contains('user')) {
+                const userContent = userMessage.querySelector('.user-content').textContent;
+                
+                // 删除当前及之后的所有消息
+                for (let i = messages.length - 1; i >= currentIndex - 1; i--) {
+                    messages[i].remove();
+                }
+                
+                // 更新消息历史
+                messageHistory = messageHistory.slice(0, (currentIndex - 1) / 2);
+                
+                // 重新发送问题
+                sendMessage(userContent);
             }
         }
 
         function editMessage(messageDiv) {
-            const content = messageDiv.querySelector('.answer-content').textContent;
-            const textarea = document.createElement('textarea');
-            textarea.className = 'edit-textarea';
-            textarea.value = content;
-            textarea.style.width = '100%';
-            textarea.style.minHeight = '100px';
-            textarea.style.padding = '12px';
-            textarea.style.marginTop = '10px';
-            textarea.style.border = '1px solid var(--border-color)';
-            textarea.style.borderRadius = '6px';
-            textarea.style.resize = 'vertical';
-
-            const saveBtn = document.createElement('button');
-            saveBtn.textContent = '保存';
-            saveBtn.className = 'save-btn';
-            saveBtn.style.marginTop = '10px';
-            saveBtn.style.padding = '6px 12px';
-            saveBtn.style.background = 'var(--primary-color)';
-            saveBtn.style.color = 'white';
-            saveBtn.style.border = 'none';
-            saveBtn.style.borderRadius = '4px';
-            saveBtn.style.cursor = 'pointer';
-
-            const answerContent = messageDiv.querySelector('.answer-content');
-            const originalContent = answerContent.innerHTML;
-            answerContent.innerHTML = '';
-            answerContent.appendChild(textarea);
-            answerContent.appendChild(saveBtn);
-
-            saveBtn.onclick = () => {
-                answerContent.innerHTML = textarea.value;
-                // 重新绑定事件
-                const actionBtns = messageDiv.querySelectorAll('.action-btn');
-                actionBtns.forEach(btn => {
-                    if (btn.classList.contains('edit-btn')) {
-                        btn.onclick = () => editMessage(messageDiv);
-                    } else if (btn.classList.contains('copy-btn')) {
-                        btn.onclick = () => copyMessage(messageDiv);
-                    }
-                });
-            };
+            // 找到对应的用户提问
+            const messages = document.querySelectorAll('.message');
+            const currentIndex = Array.from(messages).indexOf(messageDiv);
+            const userMessage = messages[currentIndex - 1];
+            if (userMessage && userMessage.classList.contains('user')) {
+                const userContent = userMessage.querySelector('.user-content').textContent;
+                const textarea = document.getElementById('userInput');
+                textarea.value = userContent;
+                textarea.focus();
+            }
         }
 
         function copyMessage(messageDiv) {
-            const content = messageDiv.querySelector('.answer-content').textContent;
-            navigator.clipboard.writeText(content).then(() => {
+            // 获取转换后的HTML内容
+            const content = messageDiv.querySelector('.answer-content').innerHTML;
+            // 创建临时元素来提取纯文本
+            const temp = document.createElement('div');
+            temp.innerHTML = content;
+            const textContent = temp.textContent;
+            
+            navigator.clipboard.writeText(textContent).then(() => {
                 const copyBtn = messageDiv.querySelector('.copy-btn');
                 copyBtn.classList.add('copied');
                 copyBtn.title = '已复制';
                 
-                // 2秒后恢复原状
                 setTimeout(() => {
                     copyBtn.classList.remove('copied');
                     copyBtn.title = '复制';

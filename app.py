@@ -2,8 +2,6 @@ from flask import Flask, request, Response, jsonify, render_template, redirect
 from flask_cors import CORS
 from openai import OpenAI
 import json
-import markdown2
-import re
 import logging
 
 app = Flask(__name__, template_folder='templates')
@@ -35,41 +33,6 @@ def get_model_config(model_id):
     if model_id in models:
         return models[model_id]
     return None
-
-def is_markdown(text):
-    """检查文本是否包含 Markdown 格式"""
-    markdown_patterns = [
-        r'^#+\s',           # 标题
-        r'^\s*[-*+]\s',     # 无序列表
-        r'^\s*\d+\.\s',     # 有序列表
-        r'`[^`]+`',         # 行内代码
-        r'```[\s\S]+?```',  # 代码块
-        r'\[.+?\]\(.+?\)',  # 链接
-        r'\*\*.+?\*\*',     # 加粗
-        r'\*.+?\*',         # 斜体
-        r'^\s*>',           # 引用
-        r'\|.+?\|',         # 表格
-        r'^-{3,}$',         # 分隔线
-    ]
-    
-    for pattern in markdown_patterns:
-        if re.search(pattern, text, re.MULTILINE):
-            return True
-    return False
-
-def convert_to_html(text):
-    """根据内容格式决定是否转换为 HTML"""
-    if is_markdown(text):
-        # 使用 markdown2 转换 markdown 内容
-        markdowner = markdown2.Markdown(extras=[
-            'fenced-code-blocks',
-            'tables',
-            'header-ids'
-        ])
-        return markdowner.convert(text)
-    else:
-        # 非 markdown 内容直接返回，但确保是 HTML 安全的
-        return f"<p>{text}</p>"
 
 def load_agent_config():
     try:
@@ -156,17 +119,13 @@ def chat():
                             if chunk.choices[0].delta.content:
                                 content = chunk.choices[0].delta.content
                                 response_data['content'] = content
-                                response_data['is_markdown'] = is_markdown(content)
 
                         if response_data:
                             yield f"data: {json.dumps(response_data, ensure_ascii=False)}\n\n"
                 else:
                     content = response.choices[0].message.content
-                    html_content = convert_to_html(content)
                     response_data = {
-                        'content': content,
-                        'html_content': html_content,
-                        'is_markdown': is_markdown(content)
+                        'content': content
                     }
                     yield f"data: {json.dumps(response_data, ensure_ascii=False)}\n\n"
 
