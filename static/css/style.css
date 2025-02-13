@@ -26,7 +26,7 @@ body {
 /* 头部样式 */
 .header {
     background: #fff;
-    padding: 15px 20px;
+    padding: 22px 40px;
     border-bottom: 1px solid #e6e6e6;
     display: flex;
     justify-content: flex-end;
@@ -133,6 +133,8 @@ body {
     margin-left: 12px;
     min-width: 50px;
     border: 1px solid rgba(37, 99, 235, 0.1);
+    padding-top: 10px;
+    padding-bottom: 10px;
 }
 
 /* 移除之前的固定宽度限制 */
@@ -684,7 +686,7 @@ body {
 
 .new-chat-btn {
     width: calc(100% - 10px);
-    margin-top: 10px;
+    margin-top: 14px;
     margin-left: 10px;
 }
 

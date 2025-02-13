@@ -85,14 +85,14 @@
     </div>
 
     <!-- 在其他脚本之后添加这些库 -->
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="/static/prism.min.js"></script>
     <!-- 添加你需要的语言支持 -->
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="/static/components/prism-python.min.js"></script>
+    <script src="/static/components/prism-javascript.min.js"></script>
+    <script src="/static/components/prism-bash.min.js"></script>
     <!-- 修改 KaTeX JS 的引入顺序和配置 -->
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" integrity="sha384-cpW21h6RZv/phavutF+AuVYrr+dA8xD9zs6FwLpaCct6O9ctzYFfFr4dgmgccOTx" crossorigin="anonymous"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    <script defer src="/static/katex.min.js" integrity="sha384-cpW21h6RZv/phavutF+AuVYrr+dA8xD9zs6FwLpaCct6O9ctzYFfFr4dgmgccOTx" crossorigin="anonymous"></script>
+    <script defer src="/static/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
 
     <script>
         let isProcessing = false;
@@ -165,23 +165,22 @@
                 // 修改渲染逻辑
                 let renderedContent = content;
                 
-                // 首先处理数学公式
+                // 先处理 Markdown
                 try {
-                    // 使用正则表达式匹配所有数学公式
-                    renderedContent = content.replace(/\$\$(.*?)\$\$/g, (match, formula) => {
+                    renderedContent = marked.parse(renderedContent);
+                } catch (e) {
+                    console.error('Markdown parsing error:', e);
+                }
+                
+                // 然后处理数学公式
+                try {
+                    // 使用更精确的正则表达式匹配数学公式
+                    renderedContent = renderedContent.replace(/(\$\$[^$]+\$\$)|(\$[^$`\n]+\$)/g, (match) => {
                         try {
+                            const displayMode = match.startsWith('$$');
+                            const formula = match.replace(/\$\$/g, '');
                             return katex.renderToString(formula, {
-                                displayMode: true,
-                                throwOnError: false
-                            });
-                        } catch (e) {
-                            console.error('KaTeX error:', e);
-                            return match;
-                        }
-                    }).replace(/\$(.*?)\$/g, (match, formula) => {
-                        try {
-                            return katex.renderToString(formula, {
-                                displayMode: false,
+                                displayMode: displayMode,
                                 throwOnError: false
                             });
                         } catch (e) {
@@ -192,9 +191,6 @@
                 } catch (e) {
                     console.error('Math rendering error:', e);
                 }
-                
-                // 然后处理 Markdown
-                renderedContent = marked.parse(renderedContent);
                 
                 contentDiv.innerHTML = `
                     <div class="${isUser ? 'user-content' : 'answer-content'}">${renderedContent}</div>
@@ -492,41 +488,31 @@
                             if (data.content) {
                                 fullContent += data.content;
                                 
-                                // 首先处理数学公式
-                                let processedContent = fullContent;
+                                // 先处理 Markdown
                                 try {
-                                    // 处理行内公式和显示公式
-                                    processedContent = processedContent.replace(/\$\$(.*?)\$\$/g, (match, formula) => {
+                                    fullHtml = marked.parse(fullContent);
+                                } catch (e) {
+                                    console.error('Markdown parsing error:', e);
+                                    fullHtml = `<p>${fullContent}</p>`;
+                                }
+                                
+                                // 然后处理数学公式
+                                try {
+                                    fullHtml = fullHtml.replace(/(\$\$[^$]+\$\$)|(\$[^$`\n]+\$)/g, (match) => {
                                         try {
+                                            const displayMode = match.startsWith('$$');
+                                            const formula = match.replace(/\$\$/g, '');
                                             return katex.renderToString(formula, {
-                                                displayMode: true,
+                                                displayMode: displayMode,
                                                 throwOnError: false
                                             });
                                         } catch (e) {
-                                            console.error('KaTeX display error:', e);
-                                            return match;
-                                        }
-                                    }).replace(/\$((?!\$).*?)\$/g, (match, formula) => {
-                                        try {
-                                            return katex.renderToString(formula, {
-                                                displayMode: false,
-                                                throwOnError: false
-                                            });
-                                        } catch (e) {
-                                            console.error('KaTeX inline error:', e);
+                                            console.error('KaTeX error:', e);
                                             return match;
                                         }
                                     });
                                 } catch (e) {
                                     console.error('Math processing error:', e);
-                                }
-
-                                // 然后处理 Markdown
-                                try {
-                                    fullHtml = marked.parse(processedContent);
-                                } catch (e) {
-                                    console.error('Markdown parsing error:', e);
-                                    fullHtml = `<p>${processedContent}</p>`;
                                 }
 
                                 // 更新内容
