@@ -194,11 +194,23 @@
             const messages = document.querySelectorAll('.message');
             const currentIndex = Array.from(messages).indexOf(messageDiv);
             const userMessage = messages[currentIndex - 1];
+            
             if (userMessage && userMessage.classList.contains('user')) {
                 const userContent = userMessage.querySelector('.user-content').textContent;
+                
+                // 获取输入框并填充内容
                 const textarea = document.getElementById('userInput');
                 textarea.value = userContent;
+                
+                // 激活输入框
+                textarea.disabled = false;
                 textarea.focus();
+                
+                // 自动调整输入框高度
+                autoResizeTextarea(textarea);
+                
+                // 滚动到输入框位置
+                textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }
 
@@ -246,8 +258,8 @@
             currentController = new AbortController();
 
             // 创建AI回复的消息框
-            const thinkingDiv = document.createElement('div');
-            thinkingDiv.className = 'message assistant';  // 直接使用正确的类名
+            const replyBoxDiv = document.createElement('div');
+            replyBoxDiv.className = 'message assistant';  // 直接使用正确的类名
             
             // 添加头像
             const avatar = document.createElement('div');
@@ -281,13 +293,21 @@
                 </div>
             `;
             
-            thinkingDiv.appendChild(avatar);
-            thinkingDiv.appendChild(contentDiv);
-            document.getElementById('chatContainer').appendChild(thinkingDiv);
+            replyBoxDiv.appendChild(avatar);
+            replyBoxDiv.appendChild(contentDiv);
+            document.getElementById('chatContainer').appendChild(replyBoxDiv);
 
             // 立即绑定停止按钮事件
-            const stopBtn = thinkingDiv.querySelector('.stop-btn');
-            stopBtn.onclick = () => stopGeneration(thinkingDiv);
+            const stopBtn = replyBoxDiv.querySelector('.stop-btn');
+            stopBtn.onclick = () => stopGeneration(replyBoxDiv);
+
+            // 绑定编辑按钮事件
+            const editBtn = replyBoxDiv.querySelector('.edit-btn');
+            editBtn.onclick = () => editMessage(replyBoxDiv);
+            
+            // 绑定复制按钮事件
+            const copyBtn = replyBoxDiv.querySelector('.copy-btn');
+            copyBtn.onclick = () => copyMessage(replyBoxDiv);
 
             try {
                 const response = await fetch('/chat', {
@@ -322,8 +342,8 @@
                             // 处理思考过程
                             if (data.reasoning_content && document.getElementById('modelSelector').value === 'deepseek-r1') {
                                 reasoningContent += data.reasoning_content;
-                                const reasoningDiv = thinkingDiv.querySelector('.reasoning-content');
-                                const reasoningText = thinkingDiv.querySelector('.reasoning-text');
+                                const reasoningDiv = replyBoxDiv.querySelector('.reasoning-content');
+                                const reasoningText = replyBoxDiv.querySelector('.reasoning-text');
                                 reasoningDiv.style.display = 'block';
                                 reasoningText.textContent = reasoningContent;
                             }
@@ -347,16 +367,16 @@
                                     console.error('Markdown 解析错误:', e);
                                     fullHtml = `<p>${fullContent}</p>`;
                                 }
-                                const answerDiv = thinkingDiv.querySelector('.answer-content');
+                                const answerDiv = replyBoxDiv.querySelector('.answer-content');
                                 answerDiv.innerHTML = fullHtml;
                             }
                         }
                     }
                 }
 
-                thinkingDiv.className = 'message assistant';
+                replyBoxDiv.className = 'message assistant';
                 // 生成完成后，将停止按钮转换为重试按钮
-                const stopBtn = thinkingDiv.querySelector('.stop-btn');
+                const stopBtn = replyBoxDiv.querySelector('.stop-btn');
                 convertToRetryButton(stopBtn);
                 
                 // 将AI的回复添加到历史记录
@@ -376,8 +396,8 @@
                     console.log('Generation stopped by user');
                 } else {
                     console.error('Error:', error);
-                    thinkingDiv.className = 'message assistant';
-                    thinkingDiv.innerHTML = `
+                    replyBoxDiv.className = 'message assistant';
+                    replyBoxDiv.innerHTML = `
                         <div class="message-content">
                             抱歉，发生了错误：${error.message}
                         </div>
