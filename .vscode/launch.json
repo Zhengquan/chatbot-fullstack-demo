@@ -9,7 +9,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/app.py",
-            "python": "/Users/chriszqyang/miniconda3/envs/langchain/bin/python",
+            "python": "~/miniconda3/envs/langchain/bin/python",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
                 "FLASK_APP": "app.py",
