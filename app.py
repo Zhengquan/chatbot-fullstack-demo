@@ -1,8 +1,10 @@
-from flask import Flask, request, Response, jsonify, render_template, redirect
+from flask import Flask, request, Response, jsonify, render_template, redirect, g
 from flask_cors import CORS
 from openai import OpenAI
 import json
 import logging
+from functools import wraps
+from urllib.parse import quote
 
 app = Flask(__name__, template_folder='templates')
 CORS(app)  # 启用CORS支持
@@ -54,6 +56,41 @@ def load_agent_config():
         with open('agent_config.json', 'w', encoding='utf-8') as f:
             json.dump(default_config, f, ensure_ascii=False, indent=4)
         return default_config
+
+def check_auth(username, password):
+    with open('config.json') as f:
+        config = json.load(f)
+    return username == config['admin']['username'] and password == config['admin']['password']
+
+# 定义需要排除认证的路径（精确匹配）
+PUBLIC_PATHS = { }
+
+# 定义需要排除认证的路径前缀
+PUBLIC_PREFIXES = (
+    '/static',  # 静态资源
+)
+
+@app.before_request
+def authenticate():
+    # 检查精确匹配的公开路径
+    if request.path in PUBLIC_PATHS:
+        return None
+        
+    # 检查路径前缀
+    if request.path.startswith(PUBLIC_PREFIXES):
+        return None
+        
+    # 检查认证
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        # 对中文进行RFC 5987编码
+        auth_realm = 'UTF-8\'\'%s' % quote('管理员登录', safe='')
+        return Response(
+            '需要认证才能访问此页面\n请使用管理员账号登录', 
+            401,
+            {'WWW-Authenticate': f'Basic realm="{auth_realm}", charset="UTF-8"'}
+        )
+    return None
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -157,8 +194,8 @@ def install_callback():
         return jsonify({"errcode": -1, "errmsg": str(e)})
 
 # 业务设置页面
-@app.route('/business/settings', methods=['GET', 'POST'])
-def business_settings():
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
     if request.method == 'GET':
         # 从agent_config.json获取所有设置
         agent_settings = load_agent_config()
