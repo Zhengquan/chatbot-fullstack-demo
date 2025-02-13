@@ -112,7 +112,13 @@
             }
             
             chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            // 添加平滑滚动并确保滚动到底部
+            setTimeout(() => {
+                chatContainer.scrollTo({
+                    top: chatContainer.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 100);
             
             if (!isUser) {
                 // 绑定按钮事件
@@ -345,7 +351,7 @@
                                 const reasoningDiv = replyBoxDiv.querySelector('.reasoning-content');
                                 const reasoningText = replyBoxDiv.querySelector('.reasoning-text');
                                 reasoningDiv.style.display = 'block';
-                                reasoningText.textContent = reasoningContent;
+                                reasoningText.innerHTML = reasoningContent.replace(/\n/g, '<br>');
                             }
                             
                             // 处理回答内容
@@ -372,6 +378,14 @@
                             }
                         }
                     }
+                    // 在 sendMessage 函数的流式响应处理部分添加滚动代码
+                    setTimeout(() => {
+                        const chatContainer = document.getElementById('chatContainer');
+                        chatContainer.scrollTo({
+                            top: chatContainer.scrollHeight,
+                            behavior: 'smooth'
+                        });
+                    }, 0);
                 }
 
                 replyBoxDiv.className = 'message assistant';
