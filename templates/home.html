@@ -604,14 +604,17 @@
             if (session && session.messages) {
                 session.messages.forEach(msg => {
                     if (msg.role === 'assistant') {
+                        // 使用 marked 渲染 AI 回复的内容
+                        const renderedContent = marked.parse(msg.content);
+                        
                         // 如果有思考过程，将其作为消息内容的一部分
                         const messageContent = msg.reasoning ? 
                             `<div class="reasoning-content">
                                 <strong>思考过程：</strong><br/>
                                 <span class="reasoning-text">${msg.reasoning.replace(/\n/g, '<br>')}</span>
                             </div>
-                            <div class="answer-content">${msg.content}</div>` :
-                            msg.content;
+                            <div class="answer-content">${renderedContent}</div>` :
+                            `<div class="answer-content">${renderedContent}</div>`;
                         
                         const messageDiv = appendMessage(messageContent, false);
                         messageHistory.push({
