@@ -8,32 +8,75 @@
     <script src="/static/marked.min.js"></script>
 </head>
 <body>
-    <div class="header">
-        <div class="header-title">
-            <img src="/static/logo.png" alt="AI助手">
-            <span>智能AI助手</span>
+    <div class="app-container">
+        <!-- 左侧边栏 -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <button class="new-chat-btn" onclick="createNewSession()">
+                    <span class="icon">+</span> 新会话
+                </button>
+                <button class="collapse-btn" onclick="toggleSidebar()">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                        <path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="session-list" id="sessionList"></div>
         </div>
-        <div class="header-controls">
-            <select class="model-selector" id="modelSelector">
-                <option value="deepseek-r1">DeepSeek R1</option>
-                <option value="deepseek-v3">DeepSeek V3</option>
-            </select>
-            <button class="clear-btn" onclick="clearChat()">清空对话</button>
-        </div>
-    </div>
+        
+        <!-- 原有内容包裹到 main-content -->
+        <div class="main-content">
+            <div class="header">
+                <div class="header-title">
+                    <img src="/static/logo.png" alt="AI助手">
+                    <span>智能AI助手</span>
+                </div>
+                <div class="header-controls">
+                    <button class="clear-btn" onclick="clearChat()">清空对话</button>
+                </div>
+            </div>
 
-    <div class="chat-container" id="chatContainer">
-        <div class="message assistant">
-            <div class="message-content">
-                {{ welcome_message }}
+            <div class="chat-container" id="chatContainer">
+                <div class="message assistant">
+                    <div class="message-content">
+                        {{ welcome_message }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <div class="input-box">
+                    <textarea id="userInput" placeholder="请输入您的问题，按Enter发送，Shift+Enter换行" onkeydown="handleKeyPress(event)"></textarea>
+                    <button class="send-btn" onclick="sendMessage()">发送</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="input-container">
-        <div class="input-box">
-            <textarea id="userInput" placeholder="请输入您的问题，按Enter发送，Shift+Enter换行" onkeydown="handleKeyPress(event)"></textarea>
-            <button class="send-btn" onclick="sendMessage()">发送</button>
+    <!-- 修改模型选择器为会话创建时选择 -->
+    <div class="model-selector-popup" id="modelSelectorPopup">
+        <div class="popup-content">
+            <h3>选择模型</h3>
+            <div class="model-options">
+                <button class="model-option" data-model="deepseek-r1">
+                    <div class="model-info">
+                        <div class="model-name">DeepSeek R1</div>
+                        <div class="model-desc">快速响应，通用场景</div>
+                    </div>
+                </button>
+                <button class="model-option" data-model="deepseek-v3">
+                    <div class="model-info">
+                        <div class="model-name">DeepSeek V3</div>
+                        <div class="model-desc">深度推理，复杂任务</div>
+                    </div>
+                </button>
+                <button class="model-option" data-model="deepseek-code">
+                    <div class="model-info">
+                        <div class="model-name">DeepSeek Code</div>
+                        <div class="model-desc">代码生成与解释</div>
+                    </div>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -44,6 +87,21 @@
         // 添加消息历史数组
         let messageHistory = [];
 
+        // 会话管理相关变量
+        let currentSessionId = null;
+        const SESSION_STORAGE_KEY = 'ai_sessions';
+        
+        // 会话数据结构
+        class ChatSession {
+            constructor() {
+                this.id = crypto.randomUUID();
+                this.title = '新会话';
+                this.timestamp = new Date().toISOString();
+                this.messages = [];
+                this.model = 'deepseek-r1';
+            }
+        }
+
         function handleKeyPress(event) {
             if (event.keyCode === 13 && !event.shiftKey) {
                 event.preventDefault();
@@ -52,18 +110,20 @@
         }
 
         function clearChat() {
-            document.getElementById('chatContainer').innerHTML = `
-                <div class="message assistant">
-                    <div class="message-content">
-                        ${welcome_message}
+            if (confirm('确定要清空当前会话吗？')) {
+                document.getElementById('chatContainer').innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            ${welcome_message}
+                        </div>
                     </div>
-                </div>
-            `;
-            // 清空消息历史
-            messageHistory = [];
+                `;
+                messageHistory = [];
+                autoSaveSession();
+            }
         }
 
-        function appendMessage(content, isUser = false) {
+        function appendMessage(content, isUser = false, isReasoning = false) {
             const chatContainer = document.getElementById('chatContainer');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
@@ -72,35 +132,56 @@
             const avatar = document.createElement('div');
             avatar.className = 'avatar';
             if (isUser) {
-                // 不再添加文字，使用 CSS 伪元素显示图标
+                // 使用CSS伪元素显示用户图标
             } else {
                 avatar.innerHTML = '<img src="/static/favicon-16x16.png" alt="AI">';
             }
             
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
-            contentDiv.innerHTML = `
-                ${isUser ? `<div class="user-content">${content}</div>` : `
-                    <div class="answer-content">${content}</div>
-                    <div class="message-actions" style="margin-top: 10px; padding: 5px 0;">
-                        <button class="action-btn stop-btn" title="停止生成">
-                            <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
-                                <path d="M768 768H256V256h512v512z" fill="currentColor"/>
-                            </svg>
-                        </button>
-                        <button class="action-btn edit-btn" title="编辑提问">
-                            <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
-                                <path d="M257.7 752c2 0 4-.2 6-.5L431.9 722c2-.4 3.9-1.3 5.3-2.8l423.9-423.9c3.9-3.9 3.9-10.2 0-14.1L694.9 114.9c-1.9-1.9-4.4-2.9-7.1-2.9s-5.2 1-7.1 2.9L256.8 538.8c-1.5 1.5-2.4 3.3-2.8 5.3l-29.5 168.2c-1.9 11.1 1.5 21.9 9.4 29.8 6.6 6.4 14.9 9.9 23.8 9.9z" fill="currentColor"/>
-                            </svg>
-                        </button>
-                        <button class="action-btn copy-btn" title="复制">
-                            <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
-                                <path d="M832 64H296c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h496v688c0 4.4 3.6 8 8 8h56c4.4 0 8-3.6 8-8V96c0-17.7-14.3-32-32-32zM704 192H192c-17.7 0-32 14.3-32 32v530.7c0 8.5 3.4 16.6 9.4 22.6l173.3 173.3c2.2 2.2 4.7 4 7.4 5.5v1.9h4.2c3.5 1.3 7.2 2 11 2H704c17.7 0 32-14.3 32-32V224c0-17.7-14.3-32-32-32zM382 896h-.2L232 746.2V896h150z" fill="currentColor"/>
-                            </svg>
-                        </button>
+            
+            if (isReasoning) {
+                // 思考过程直接显示在消息内容中
+                contentDiv.innerHTML = `
+                    <div class="reasoning-content">
+                        <strong>思考过程：</strong><br/>
+                        <span class="reasoning-text">${content.replace(/\n/g, '<br>')}</span>
                     </div>
-                `}
-            `;
+                `;
+            } else {
+                // 普通消息的处理
+                contentDiv.innerHTML = `
+                    <div class="${isUser ? 'user-content' : 'answer-content'}">${content}</div>
+                    ${(!isUser && !isReasoning) ? `
+                        <div class="message-actions">
+                            ${isProcessing ? `
+                                <button class="action-btn stop-btn" title="停止生成">
+                                    <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                        <path d="M768 768H256V256h512v512z" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            ` : `
+                                <button class="action-btn retry-btn" title="重新回答">
+                                    <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                        <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z" fill="currentColor"/>
+                                        <path d="M719.4 499.1l-296.1-215A15.9 15.9 0 0 0 398 297v430c0 13.1 14.8 20.5 25.3 12.9l296.1-215a15.9 15.9 0 0 0 0-25.8z" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            `}
+                            <button class="action-btn edit-btn" title="编辑">
+                                <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                    <path d="M257.7 752c2 0 4-.2 6-.5L431.9 722c2-.4 3.9-1.3 5.3-2.8l423.9-423.9c3.9-3.9 3.9-10.2 0-14.1L694.9 114.9c-1.9-1.9-4.4-2.9-7.1-2.9s-5.2 1-7.1 2.9L256.8 538.8c-1.5 1.5-2.4 3.3-2.8 5.3l-29.5 168.2c-1.9 11.1 1.5 21.9 9.4 29.8 6.6 6.4 14.9 9.9 23.8 9.9z" fill="currentColor"/>
+                                </svg>
+                            </button>
+                            <button class="action-btn copy-btn" title="复制">
+                                <svg class="icon" viewBox="0 0 1024 1024" width="16" height="16">
+                                    <path d="M832 64H296c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h496v688c0 4.4 3.6 8 8 8h56c4.4 0 8-3.6 8-8V96c0-17.7-14.3-32-32-32zM704 192H192c-17.7 0-32 14.3-32 32v530.7c0 8.5 3.4 16.6 9.4 22.6l173.3 173.3c2.2 2.2 4.7 4 7.4 5.5v1.9h4.2c3.5 1.3 7.2 2 11 2H704c17.7 0 32-14.3 32-32V224c0-17.7-14.3-32-32-32zM382 896h-.2L232 746.2V896h150z" fill="currentColor"/>
+                                </svg>
+                            </button>
+                        </div>
+                    ` : ''}
+                `;
+            }
             
             // 根据用户类型决定添加顺序
             if (isUser) {
@@ -112,29 +193,18 @@
             }
             
             chatContainer.appendChild(messageDiv);
-            // 添加平滑滚动并确保滚动到底部
-            setTimeout(() => {
-                chatContainer.scrollTo({
-                    top: chatContainer.scrollHeight,
-                    behavior: 'smooth'
-                });
-            }, 100);
             
-            if (!isUser) {
-                // 绑定按钮事件
+            // 绑定按钮事件
+            if (!isUser && !isReasoning) {
                 const stopBtn = messageDiv.querySelector('.stop-btn');
+                const retryBtn = messageDiv.querySelector('.retry-btn');
                 const editBtn = messageDiv.querySelector('.edit-btn');
                 const copyBtn = messageDiv.querySelector('.copy-btn');
                 
-                editBtn.onclick = () => editMessage(messageDiv);
-                copyBtn.onclick = () => copyMessage(messageDiv);
-                
-                // 当生成完成时，自动切换为重试按钮
-                setTimeout(() => {
-                    if (!isProcessing) {
-                        convertToRetryButton(stopBtn);
-                    }
-                }, 100);
+                if (stopBtn) stopBtn.onclick = () => stopGeneration(messageDiv);
+                if (retryBtn) retryBtn.onclick = () => regenerateAnswer(messageDiv);
+                if (editBtn) editBtn.onclick = () => editMessage(messageDiv);
+                if (copyBtn) copyBtn.onclick = () => copyMessage(messageDiv);
             }
             
             return messageDiv;
@@ -322,8 +392,8 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        messages: messageHistory,  // 发送完整的消息历史
-                        model: document.getElementById('modelSelector').value,
+                        messages: messageHistory,
+                        model: getCurrentModel(),
                         stream: true
                     }),
                     signal: currentController.signal
@@ -346,7 +416,7 @@
                             const data = JSON.parse(line.slice(5));
                             
                             // 处理思考过程
-                            if (data.reasoning_content && document.getElementById('modelSelector').value === 'deepseek-r1') {
+                            if (data.reasoning_content && getCurrentModel() === 'deepseek-r1') {
                                 reasoningContent += data.reasoning_content;
                                 const reasoningDiv = replyBoxDiv.querySelector('.reasoning-content');
                                 const reasoningText = replyBoxDiv.querySelector('.reasoning-text');
@@ -394,9 +464,10 @@
                 convertToRetryButton(stopBtn);
                 
                 // 将AI的回复添加到历史记录
-                messageHistory.push({ 
-                    role: 'assistant', 
-                    content: fullContent 
+                messageHistory.push({
+                    role: 'assistant',
+                    content: fullContent,
+                    reasoning: reasoningContent
                 });
 
                 // 如果历史记录超过最大轮数，移除最早的对话
@@ -424,6 +495,9 @@
                 isProcessing = false;
                 currentController = null;
             }
+
+            // 在sendMessage函数末尾添加自动保存
+            autoSaveSession();
         }
 
         // 自动调整文本框高度
@@ -432,50 +506,239 @@
             textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';  // 设置新高度，最大200px
         }
 
-        // 初始化事件监听
-        document.addEventListener('DOMContentLoaded', async function() {
-            const textarea = document.getElementById('userInput');
-            
-            // 输入时自动调整高度
-            textarea.addEventListener('input', function() {
-                autoResizeTextarea(this);
-            });
-            
-            // 处理回车键
-            textarea.addEventListener('keydown', function(event) {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    sendMessage();
-                }
-            });
-            
-            // 初始化高度
-            autoResizeTextarea(textarea);
+        // 添加时间格式化函数
+        function formatTime(isoString) {
+            const date = new Date(isoString);
+            return `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
 
-            // 加载配置并更新模型选择器
+        // 初始化事件监听
+        document.addEventListener('DOMContentLoaded', function() {
+            initSidebar();
+            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY)) || [new ChatSession()];
+            
+            // 从本地存储获取上次选中的会话ID
+            currentSessionId = localStorage.getItem('currentSessionId') || sessions[0].id;
+            loadSession(currentSessionId);
+            renderSessionList(sessions);
+        });
+
+        // 初始化会话管理
+        function initSessions() {
+            let sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY)) || [];
+            if (sessions.length === 0) {
+                sessions = [new ChatSession()];
+            }
+            currentSessionId = sessions[0].id;
+            renderSessionList(sessions);
+            loadSession(currentSessionId);
+        }
+
+        // 渲染会话列表
+        function renderSessionList(sessions) {
+            const list = document.getElementById('sessionList');
+            const currentId = localStorage.getItem('currentSessionId');
+            
+            list.innerHTML = sessions.map(session => `
+                <div class="session-item ${session.id === currentId ? 'active' : ''}" 
+                     data-id="${session.id}"
+                     onclick="switchSession('${session.id}')">
+                    <div class="session-content">
+                        <span class="session-title">${session.title}</span>
+                        <div class="session-info">
+                            <span class="session-model">${session.model}</span>
+                            <span class="session-time">${formatTime(session.timestamp)}</span>
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteSession('${session.id}', event)">×</button>
+                </div>
+            `).join('');
+            
+            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+        }
+
+        // 切换会话
+        function switchSession(sessionId) {
+            // 保存当前会话ID到本地存储
+            localStorage.setItem('currentSessionId', sessionId);
+            currentSessionId = sessionId;
+            
+            // 更新UI显示
+            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY));
+            renderSessionList(sessions);
+            loadSession(sessionId);
+        }
+
+        // 删除会话
+        function deleteSession(sessionId, event) {
+            event.stopPropagation();
+            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY));
+            const filtered = sessions.filter(s => s.id !== sessionId);
+            
+            // 如果删除的是当前选中的会话，切换到第一个可用会话
+            if (sessionId === localStorage.getItem('currentSessionId') && filtered.length > 0) {
+                localStorage.setItem('currentSessionId', filtered[0].id);
+            }
+            
+            renderSessionList(filtered.length > 0 ? filtered : [new ChatSession()]);
+        }
+
+        // 加载会话
+        function loadSession(sessionId) {
+            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY));
+            const session = sessions.find(s => s.id === sessionId);
+            
+            // 清空当前界面
+            document.getElementById('chatContainer').innerHTML = `
+                <div class="message assistant">
+                    <div class="message-content">
+                        ${welcome_message}
+                    </div>
+                </div>
+            `;
+            
+            // 重新构建消息历史
+            messageHistory = [];
+            
+            // 重新渲染历史消息
+            if (session && session.messages) {
+                session.messages.forEach(msg => {
+                    if (msg.role === 'assistant') {
+                        // 如果有思考过程，将其作为消息内容的一部分
+                        const messageContent = msg.reasoning ? 
+                            `<div class="reasoning-content">
+                                <strong>思考过程：</strong><br/>
+                                <span class="reasoning-text">${msg.reasoning.replace(/\n/g, '<br>')}</span>
+                            </div>
+                            <div class="answer-content">${msg.content}</div>` :
+                            msg.content;
+                        
+                        const messageDiv = appendMessage(messageContent, false);
+                        messageHistory.push({
+                            role: 'assistant',
+                            content: msg.content,
+                            reasoning: msg.reasoning
+                        });
+                    } else {
+                        appendMessage(msg.content, true);
+                        messageHistory.push({
+                            role: msg.role,
+                            content: msg.content
+                        });
+                    }
+                });
+            }
+        }
+
+        // 在sendMessage函数末尾添加自动保存
+        function autoSaveSession() {
+            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY)) || [];
+            const session = sessions.find(s => s.id === currentSessionId);
+            if (!session) return;
+
+            // 保存当前会话ID
+            localStorage.setItem('currentSessionId', currentSessionId);
+
+            // 结构化保存消息
+            session.messages = messageHistory.map(msg => ({
+                role: msg.role,
+                content: msg.content,
+                reasoning: msg.reasoning || null
+            }));
+            
+            session.timestamp = new Date().toISOString();
+            
+            // 智能生成标题
+            if (messageHistory.length > 0) {
+                const lastUserMessage = messageHistory.reverse().find(m => m.role === 'user');
+                if (lastUserMessage) {
+                    session.title = lastUserMessage.content.substring(0, 18) + '...';
+                }
+            }
+            
+            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+            renderSessionList(sessions);
+        }
+
+        // 侧边栏状态管理
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+        }
+
+        // 初始化侧边栏状态
+        function initSidebar() {
+            const collapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            document.querySelector('.sidebar').classList.toggle('collapsed', collapsed);
+        }
+
+        // 恢复 showModelSelector 函数
+        function showModelSelector() {
             fetch('/get_models')
                 .then(response => response.json())
                 .then(models => {
-                    const selector = document.getElementById('modelSelector');
-                    selector.innerHTML = '';  // 清空现有选项
-                    
-                    Object.entries(models).forEach(([id, model]) => {
-                        const option = document.createElement('option');
-                        option.value = id;
-                        option.textContent = model.name;
-                        selector.appendChild(option);
-                    });
-                });
+                    const options = document.querySelector('.model-options');
+                    options.innerHTML = Object.entries(models).map(([id, model]) => `
+                        <button class="model-option" data-model="${id}">
+                            <div class="model-info">
+                                <div class="model-name">${model.name}</div>
+                                <div class="model-desc">${model.description}</div>
+                            </div>
+                        </button>
+                    `).join('');
 
-            // 初始化时获取最大对话轮数
-            try {
-                const response = await fetch('/get_agent_config');
-                const config = await response.json();
-                maxTurns = config.conversation_max_turns || 5;
-            } catch (error) {
-                console.error('获取配置失败:', error);
+                    // 添加点击事件监听
+                    document.querySelectorAll('.model-option').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const model = btn.dataset.model;
+                            document.getElementById('modelSelectorPopup').style.display = 'none';
+                            
+                            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY)) || [];
+                            const newSession = new ChatSession();
+                            newSession.model = model;
+                            sessions.unshift(newSession);
+                            currentSessionId = newSession.id;
+                            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+                            
+                            renderSessionList(sessions);
+                            loadSession(newSession.id);
+                        });
+                    });
+                    
+                    document.getElementById('modelSelectorPopup').style.display = 'flex';
+                });
+        }
+
+        // 恢复创建新会话按钮调用
+        function createNewSession() {
+            showModelSelector();
+        }
+
+        // 添加获取当前模型的方法
+        function getCurrentModel() {
+            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY)) || [];
+            const currentSession = sessions.find(s => s.id === currentSessionId);
+            return currentSession?.model || 'deepseek-r1';
+        }
+
+        window.onload = function() {
+            // 从 localStorage 获取上次选中的会话 ID
+            const lastSelectedChat = localStorage.getItem('selectedChatId');
+            if (lastSelectedChat) {
+                selectChat(lastSelectedChat);
             }
-        });
+        }
+
+        function selectChat(chatId) {
+            // ... 现有代码 ...
+            
+            // 保存选中的会话 ID
+            localStorage.setItem('selectedChatId', chatId);
+            
+            // 加载会话历史
+            loadChatHistory(chatId);
+        }
     </script>
 </body>
 </html> 

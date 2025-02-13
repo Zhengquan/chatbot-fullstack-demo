@@ -237,5 +237,61 @@ def get_agent_config():
         'conversation_max_turns': config.get('conversation_max_turns', 5)
     })
 
+# 修改加载历史消息的部分
+def load_chat_history(chat_id):
+    try:
+        # 从本地存储获取会话数据
+        sessions = json.loads(request.cookies.get(SESSION_STORAGE_KEY, '[]'))
+        session = next((s for s in sessions if s['id'] == chat_id), None)
+        
+        if not session:
+            return []
+            
+        # 确保消息格式一致
+        formatted_messages = []
+        for msg in session.get('messages', []):
+            if msg['role'] == 'assistant':
+                # 如果有思考过程，先添加思考过程
+                if msg.get('reasoning'):
+                    formatted_messages.append({
+                        'role': 'assistant',
+                        'content': msg['reasoning'],
+                        'format': 'reasoning',
+                        'timestamp': msg.get('timestamp', '')
+                    })
+                # 再添加回答内容
+                formatted_messages.append({
+                    'role': 'assistant',
+                    'content': msg['content'],
+                    'format': 'standard',
+                    'timestamp': msg.get('timestamp', '')
+                })
+            else:
+                formatted_messages.append({
+                    'role': msg['role'],
+                    'content': msg['content'],
+                    'format': 'standard',
+                    'timestamp': msg.get('timestamp', '')
+                })
+        
+        return formatted_messages
+        
+    except Exception as e:
+        logger.error(f"加载会话历史失败: {str(e)}")
+        return []
+
+@app.route('/api/select_chat', methods=['POST'])
+def select_chat():
+    data = request.get_json()
+    chat_id = data.get('chat_id')
+    
+    # 加载并返回会话历史
+    history = load_chat_history(chat_id)
+    return jsonify({
+        'success': True,
+        'history': history,
+        'chat_id': chat_id
+    })
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)  # 修改端口为5001 
