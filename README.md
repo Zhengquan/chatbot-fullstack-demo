@@ -10,7 +10,7 @@
 ![Session](static/session-demo.png)
 
 ### 模型选择
-![Session](static/models-demo.png)
+![Model Selector](static/models-demo.png)
 
 
 ### 思维链支持
